@@ -4,98 +4,387 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Golf Scorecard</title>
-
   <style>
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
-      margin: 0;
-      padding: 16px;
-      background: #0f172a;
-      color: #e5e7eb;
-    }
-
-    h1 {
-      font-size: 22px;
-      margin-bottom: 12px;
-    }
-
-    .course {
-      background: #111827;
-      border-radius: 12px;
-      padding: 14px;
-      margin-bottom: 12px;
-      border: 1px solid #1f2937;
-    }
-
-    .course-name {
-      font-size: 18px;
-      font-weight: 600;
-    }
-
-    .course-meta {
-      font-size: 14px;
-      color: #9ca3af;
-      margin-top: 4px;
-    }
-
-    button {
-      margin-top: 10px;
-      padding: 10px 14px;
-      border-radius: 10px;
-      border: none;
-      background: #22c55e;
-      color: #052e16;
-      font-size: 15px;
-      font-weight: 600;
-    }
-
-    .error {
-      color: #f87171;
-      margin-top: 16px;
-    }
+    :root { --bg:#0f172a; --card:#111827; --border:#1f2937; --muted:#9ca3af; --ok:#22c55e; --warn:#f59e0b; --bad:#f87171; }
+    body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif; margin:0; padding:16px; background:var(--bg); color:#e5e7eb; }
+    h1 { font-size:22px; margin:0 0 12px; }
+    h2 { font-size:18px; margin:0 0 10px; }
+    .row { display:flex; gap:10px; flex-wrap:wrap; }
+    .card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:14px; margin-bottom:12px; }
+    .muted { color:var(--muted); font-size:14px; }
+    button { padding:10px 14px; border-radius:10px; border:none; background:var(--ok); color:#052e16; font-size:15px; font-weight:700; }
+    button.secondary { background:#334155; color:#e5e7eb; }
+    button.danger { background:#ef4444; color:#fff; }
+    input { width:100%; padding:10px 12px; border-radius:10px; border:1px solid var(--border); background:#0b1220; color:#e5e7eb; font-size:15px; }
+    label { display:block; font-size:13px; color:var(--muted); margin-bottom:6px; }
+    .grid { display:grid; grid-template-columns: 44px 44px 44px repeat(4, 1fr); gap:8px; align-items:center; }
+    .grid.head { position:sticky; top:0; background:linear-gradient(to bottom, rgba(15,23,42,0.98), rgba(15,23,42,0.92)); padding:10px 0; z-index:2; }
+    .cell { font-size:14px; }
+    .pill { display:inline-block; padding:4px 8px; border:1px solid var(--border); border-radius:999px; font-size:12px; color:var(--muted); }
+    .error { color:var(--bad); margin-top:10px; }
+    .totals { display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
+    .kpi { background:#0b1220; border:1px solid var(--border); border-radius:12px; padding:12px; }
+    .kpi .v { font-size:18px; font-weight:800; margin-top:4px; }
+    .small { font-size:12px; color:var(--muted); }
   </style>
 </head>
 <body>
 
-  <h1>Valitse kenttä</h1>
-
-  <div id="courses">Ladataan kenttiä…</div>
-
-  <div id="error" class="error"></div>
+  <div id="screen"></div>
 
   <script>
-    fetch("courses.torrevieja.json")
-      .then(res => {
-        if (!res.ok) throw new Error("Kenttädatan lataus epäonnistui");
-        return res.json();
-      })
-      .then(data => {
-        const container = document.getElementById("courses");
-        container.innerHTML = "";
+    const LS_KEY = "golfScorecard_round_v1";
+    function roundHalfUp(n) { return Math.round(n); }
 
-        data.courses.forEach(course => {
-          const div = document.createElement("div");
-          div.className = "course";
+    function courseHandicap(handicapIndex, slope, courseRating, parTotal) {
+      const hi = Number(handicapIndex);
+      const sr = Number(slope);
+      const cr = Number(courseRating);
+      const par = Number(parTotal);
+      if (!isFinite(hi) || !isFinite(sr) || !isFinite(cr) || !isFinite(par)) return 0;
+      return roundHalfUp(hi * (sr / 113) + (cr - par));
+    }
 
-          div.innerHTML = `
-            <div class="course-name">${course.name}</div>
-            <div class="course-meta">
-              Par ${course.tees[0].parTotal} ·
-              Slope ${course.tees[0].slopeRating} ·
-              CR ${course.tees[0].courseRating}
+    function allocatedStrokesOnHole(playingHandicap, holeHcp) {
+      const ph = Math.max(0, Math.floor(Number(playingHandicap) || 0));
+      const base = Math.floor(ph / 18);
+      const rem  = ph % 18;
+      return base + (holeHcp <= rem ? 1 : 0);
+    }
+
+    function saveRound(state) { localStorage.setItem(LS_KEY, JSON.stringify(state)); }
+    function loadRound() { try { return JSON.parse(localStorage.getItem(LS_KEY) || "null"); } catch { return null; } }
+    function clearRound() { localStorage.removeItem(LS_KEY); }
+
+    async function loadCourses() {
+      const res = await fetch("courses.torrevieja.json");
+      if (!res.ok) throw new Error("Kenttädatan lataus epäonnistui. Varmista courses.torrevieja.json repo-juuressa.");
+      const data = await res.json();
+      return data.courses || [];
+    }
+
+    const screen = document.getElementById("screen");
+
+    function renderCourseList(courses, errMsg = "") {
+      screen.innerHTML = `
+        <h1>Valitse kenttä</h1>
+        ${errMsg ? `<div class="error">${errMsg}</div>` : ""}
+        <div id="list"></div>
+        <div class="card">
+          <div class="muted">Kun valitset kentän, syötät pelaajat ja aloitat kierroksen. Kaikki tallentuu laitteelle.</div>
+        </div>
+      `;
+      const list = document.getElementById("list");
+      courses.forEach(course => {
+        const tee = (course.tees && course.tees[0]) ? course.tees[0] : {};
+        const par = tee.parTotal ?? "?";
+        const slope = tee.slopeRating ?? "?";
+        const cr = tee.courseRating ?? "?";
+        const div = document.createElement("div");
+        div.className = "card";
+        div.innerHTML = `
+          <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;">
+            <div>
+              <div style="font-size:18px;font-weight:800;">${course.name}</div>
+              <div class="muted">Par ${par} · Slope ${slope} · CR ${cr}</div>
+              <div class="muted">${course.near || ""} ${course.region ? "· " + course.region : ""}</div>
             </div>
+            <div class="pill">Yellow</div>
+          </div>
+          <div style="margin-top:10px;">
             <button>Aloita kierros</button>
-          `;
-
-          container.appendChild(div);
+          </div>
+        `;
+        div.querySelector("button").addEventListener("click", () => {
+          const round = {
+            step: "setup",
+            courseId: course.id,
+            course: course,
+            players: [
+              { name: "Pelaaja 1", hi: 12.0 },
+              { name: "Pelaaja 2", hi: 18.0 },
+              { name: "Pelaaja 3", hi: 10.0 },
+              { name: "Pelaaja 4", hi: 24.0 }
+            ],
+            scores: {}
+          };
+          saveRound(round);
+          renderSetup(round);
         });
-      })
-      .catch(err => {
-        document.getElementById("error").textContent =
-          "Virhe: " + err.message +
-          ". Varmista että courses.torrevieja.json on repojen juuressa.";
+        list.appendChild(div);
       });
-  </script>
+    }
 
+    function renderSetup(round) {
+      const course = round.course;
+      const tee = course.tees[0];
+
+      screen.innerHTML = `
+        <h1>Aloita kierros</h1>
+        <div class="card">
+          <div style="font-size:18px;font-weight:800;">${course.name}</div>
+          <div class="muted">Yellow · Par ${tee.parTotal} · Slope ${tee.slopeRating} · CR ${tee.courseRating}</div>
+        </div>
+
+        <div class="card">
+          <h2>Pelaajat (1–4)</h2>
+          <div class="muted" style="margin-bottom:10px;">Syötä nimi ja Handicap Index (HI). Course Handicap lasketaan automaattisesti.</div>
+          <div id="players"></div>
+          <div style="margin-top:12px;" class="row">
+            <button id="start">Aloita</button>
+            <button class="secondary" id="back">Takaisin</button>
+            <button class="danger" id="reset">Nollaa</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="small">Kaava (WHS): CH = round(HI × (Slope/113) + (CR − Par))</div>
+        </div>
+      `;
+
+      const playersDiv = document.getElementById("players");
+
+      function renderPlayers() {
+        playersDiv.innerHTML = "";
+        round.players.forEach((p, i) => {
+          const ch = courseHandicap(p.hi, tee.slopeRating, tee.courseRating, tee.parTotal);
+          const row = document.createElement("div");
+          row.className = "card";
+          row.style.margin = "0 0 10px 0";
+          row.innerHTML = `
+            <div class="row">
+              <div style="flex:2;min-width:160px;">
+                <label>Nimi</label>
+                <input data-k="name" data-i="${i}" value="${p.name}">
+              </div>
+              <div style="flex:1;min-width:120px;">
+                <label>HI</label>
+                <input data-k="hi" data-i="${i}" inputmode="decimal" value="${p.hi}">
+              </div>
+              <div style="flex:1;min-width:120px;">
+                <label>CH</label>
+                <div class="kpi"><div class="v">${ch}</div><div class="small">Yellow</div></div>
+              </div>
+            </div>
+            <div style="margin-top:8px;" class="row">
+              ${round.players.length > 1 ? `<button class="secondary" data-remove="${i}">Poista</button>` : ``}
+            </div>
+          `;
+          row.querySelectorAll("input").forEach(inp => {
+            inp.addEventListener("input", (e) => {
+              const k = e.target.dataset.k;
+              const idx = Number(e.target.dataset.i);
+              if (k === "name") round.players[idx].name = e.target.value;
+              if (k === "hi") round.players[idx].hi = e.target.value;
+              saveRound(round);
+              renderPlayers();
+            });
+          });
+          const rm = row.querySelector("[data-remove]");
+          if (rm) rm.addEventListener("click", () => {
+            round.players.splice(i, 1);
+            saveRound(round);
+            renderPlayers();
+          });
+
+          playersDiv.appendChild(row);
+        });
+
+        if (round.players.length < 4) {
+          const add = document.createElement("div");
+          add.className = "row";
+          add.innerHTML = `<button class="secondary" id="addPlayer">+ Lisää pelaaja</button>`;
+          playersDiv.appendChild(add);
+          document.getElementById("addPlayer").addEventListener("click", () => {
+            round.players.push({ name: `Pelaaja ${round.players.length + 1}`, hi: 18.0 });
+            saveRound(round);
+            renderPlayers();
+          });
+        }
+      }
+
+      renderPlayers();
+
+      document.getElementById("back").addEventListener("click", async () => {
+        round.step = "courses";
+        saveRound(round);
+        const courses = await loadCourses().catch(() => []);
+        renderCourseList(courses);
+      });
+
+      document.getElementById("reset").addEventListener("click", () => {
+        clearRound();
+        location.reload();
+      });
+
+      document.getElementById("start").addEventListener("click", () => {
+        round.step = "scorecard";
+        round.scores = round.scores || {};
+        for (let pi = 0; pi < round.players.length; pi++) {
+          if (!round.scores[pi]) round.scores[pi] = Array(18).fill("");
+        }
+        saveRound(round);
+        renderScorecard(round);
+      });
+    }
+
+    function renderScorecard(round) {
+      const course = round.course;
+      const tee = course.tees[0];
+      const holes = course.holes;
+      const playerCH = round.players.map(p => courseHandicap(p.hi, tee.slopeRating, tee.courseRating, tee.parTotal));
+
+      screen.innerHTML = `
+        <h1>Tuloskortti</h1>
+
+        <div class="card">
+          <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;">
+            <div>
+              <div style="font-size:18px;font-weight:800;">${course.name}</div>
+              <div class="muted">Yellow · Par ${tee.parTotal} · Slope ${tee.slopeRating} · CR ${tee.courseRating}</div>
+            </div>
+            <button class="secondary" id="setup">Asetukset</button>
+          </div>
+          <div style="margin-top:10px" class="muted">
+            ${round.players.map((p, i) => `<span class="pill">${p.name} (HI ${p.hi} → CH ${playerCH[i]})</span>`).join(" ")}
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="grid head">
+            <div class="cell"><b>#</b></div>
+            <div class="cell"><b>Par</b></div>
+            <div class="cell"><b>HCP</b></div>
+            ${round.players.map(p => `<div class="cell"><b>${p.name}</b><div class="small">gross</div></div>`).join("")}
+          </div>
+          <div id="holes"></div>
+        </div>
+
+        <div class="card totals" id="totals"></div>
+
+        <div class="card">
+          <button class="secondary" id="clearHoleScores">Tyhjennä tulokset</button>
+        </div>
+      `;
+
+      const holesDiv = document.getElementById("holes");
+
+      function allocatedStrokes(pi, hi) {
+        return allocatedStrokesOnHole(playerCH[pi], holes[hi].hcp);
+      }
+
+      function computeTotals() {
+        return round.players.map((p, pi) => {
+          let gross = 0, net = 0, holesPlayed = 0;
+          for (let hi = 0; hi < 18; hi++) {
+            const v = round.scores[pi][hi];
+            const g = Number(v);
+            if (isFinite(g) && v !== "") {
+              holesPlayed++;
+              gross += g;
+              net += (g - allocatedStrokes(pi, hi));
+            }
+          }
+          return { gross, net, holesPlayed };
+        });
+      }
+
+      function renderHoles() {
+        holesDiv.innerHTML = "";
+        for (let hi = 0; hi < 18; hi++) {
+          const h = holes[hi];
+          const row = document.createElement("div");
+          row.className = "grid";
+          row.style.padding = "8px 0";
+          row.innerHTML = `
+            <div class="cell">${hi + 1}</div>
+            <div class="cell">${h.par}</div>
+            <div class="cell">${h.hcp}</div>
+            ${round.players.map((p, pi) => `
+              <div class="cell">
+                <input inputmode="numeric" placeholder="—"
+                  data-pi="${pi}" data-hi="${hi}"
+                  value="${round.scores[pi][hi] ?? ""}">
+                <div class="small">net −${allocatedStrokes(pi, hi)} = <span id="net_${pi}_${hi}">—</span></div>
+              </div>
+            `).join("")}
+          `;
+          holesDiv.appendChild(row);
+        }
+
+        holesDiv.querySelectorAll("input").forEach(inp => {
+          inp.addEventListener("input", (e) => {
+            const pi = Number(e.target.dataset.pi);
+            const hi = Number(e.target.dataset.hi);
+            round.scores[pi][hi] = e.target.value.replace(",", ".");
+            saveRound(round);
+            updateNetLabels();
+            renderTotals();
+          });
+        });
+
+        updateNetLabels();
+      }
+
+      function updateNetLabels() {
+        for (let pi = 0; pi < round.players.length; pi++) {
+          for (let hi = 0; hi < 18; hi++) {
+            const el = document.getElementById(`net_${pi}_${hi}`);
+            if (!el) continue;
+            const g = Number(round.scores[pi][hi]);
+            const net = (isFinite(g) && round.scores[pi][hi] !== "") ? (g - allocatedStrokes(pi, hi)) : null;
+            el.textContent = net === null ? "—" : String(net);
+          }
+        }
+      }
+
+      function renderTotals() {
+        const totals = computeTotals();
+        const t = document.getElementById("totals");
+        t.innerHTML = `
+          ${totals.map((x, i) => `
+            <div class="kpi">
+              <div class="small">${round.players[i].name}</div>
+              <div class="v">Gross ${x.gross || 0}</div>
+              <div class="v">Net ${x.net || 0}</div>
+              <div class="small">${x.holesPlayed}/18 reikää</div>
+            </div>
+          `).join("")}
+        `;
+      }
+
+      renderHoles();
+      renderTotals();
+
+      document.getElementById("setup").addEventListener("click", () => {
+        round.step = "setup";
+        saveRound(round);
+        renderSetup(round);
+      });
+
+      document.getElementById("clearHoleScores").addEventListener("click", () => {
+        for (let pi = 0; pi < round.players.length; pi++) {
+          round.scores[pi] = Array(18).fill("");
+        }
+        saveRound(round);
+        renderHoles();
+        renderTotals();
+      });
+    }
+
+    (async function init() {
+      const existing = loadRound();
+      if (existing && existing.course && existing.step) {
+        if (existing.step === "setup") return renderSetup(existing);
+        if (existing.step === "scorecard") return renderScorecard(existing);
+      }
+      try {
+        const courses = await loadCourses();
+        renderCourseList(courses);
+      } catch (e) {
+        renderCourseList([], e.message);
+      }
+    })();
+  </script>
 </body>
 </html>
