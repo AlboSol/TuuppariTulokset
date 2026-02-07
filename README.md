@@ -1,19 +1,18 @@
-# Golf Scorecard App (Offline-first)
+# Golf Scorecard App – flat upload pack (iPhone-friendly)
 
-Lightweight offline-first golf scorecard application.
+This ZIP contains **no folders**. Extract it on your iPhone and upload the files one-by-one to GitHub.
 
-## Features (initial)
-- Preloaded course library (JSON)
-- Editable hole Par + HCP/Stroke Index
-- Net stroke play
-- Match play: Scramble, Bestball, Greensome (Erado optional)
-- Offline-first (local storage)
+## Minimum to upload
+- `courses.torrevieja.json` (all 4 courses in one file)
 
-## Structure
-- /data        → seed course library (read-only)
-- /src         → application source code
-- /public      → static assets
+## Optional to upload (placeholders for app code)
+- `README.md`, `COURSE_DATA.md`, `.gitignore`
+- `app.ts`, `storage.ts`, `rules.ts`
 
-## Course data
-Initial course data is stored in `/data` and copied to local storage on first run.
-User edits override seed data locally.
+## Data contents
+`courses.torrevieja.json` includes:
+- 4 courses near Torrevieja
+- Only the yellow-equivalent tee per course (Course Rating + Slope)
+- 18 holes: Par + HCP/Stroke Index
+
+The app should allow editing Par + HCP locally.

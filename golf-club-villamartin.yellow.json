@@ -1,0 +1,115 @@
+{
+  "id": "golf-club-villamartin",
+  "name": "Golf Club Villamartin",
+  "country": "Spain",
+  "region": "Comunidad Valenciana (Alicante)",
+  "near": "Torrevieja",
+  "source": {
+    "provider": "Golfify",
+    "url": "https://www.golfify.io/courses/golf-club-villamartin",
+    "retrieved": "2026-02-07"
+  },
+  "tees": [
+    {
+      "teeId": "yellow",
+      "teeNameLocal": "Amarillos",
+      "parTotal": 72,
+      "courseRating": 71.2,
+      "slopeRating": 134,
+      "distance": 5868,
+      "distanceUnit": "m_or_yards_unspecified_by_source"
+    }
+  ],
+  "holes": [
+    {
+      "hole": 1,
+      "par": 5,
+      "hcp": 4
+    },
+    {
+      "hole": 2,
+      "par": 4,
+      "hcp": 6
+    },
+    {
+      "hole": 3,
+      "par": 4,
+      "hcp": 14
+    },
+    {
+      "hole": 4,
+      "par": 4,
+      "hcp": 12
+    },
+    {
+      "hole": 5,
+      "par": 5,
+      "hcp": 2
+    },
+    {
+      "hole": 6,
+      "par": 3,
+      "hcp": 10
+    },
+    {
+      "hole": 7,
+      "par": 4,
+      "hcp": 16
+    },
+    {
+      "hole": 8,
+      "par": 4,
+      "hcp": 8
+    },
+    {
+      "hole": 9,
+      "par": 3,
+      "hcp": 18
+    },
+    {
+      "hole": 10,
+      "par": 4,
+      "hcp": 9
+    },
+    {
+      "hole": 11,
+      "par": 5,
+      "hcp": 17
+    },
+    {
+      "hole": 12,
+      "par": 4,
+      "hcp": 3
+    },
+    {
+      "hole": 13,
+      "par": 3,
+      "hcp": 15
+    },
+    {
+      "hole": 14,
+      "par": 5,
+      "hcp": 1
+    },
+    {
+      "hole": 15,
+      "par": 4,
+      "hcp": 11
+    },
+    {
+      "hole": 16,
+      "par": 4,
+      "hcp": 7
+    },
+    {
+      "hole": 17,
+      "par": 3,
+      "hcp": 13
+    },
+    {
+      "hole": 18,
+      "par": 4,
+      "hcp": 5
+    }
+  ]
+}

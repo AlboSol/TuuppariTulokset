@@ -1,0 +1,115 @@
+{
+  "id": "lo-romero-golf",
+  "name": "Lo Romero Golf",
+  "country": "Spain",
+  "region": "Comunidad Valenciana (Alicante)",
+  "near": "Torrevieja",
+  "source": {
+    "provider": "Golfify",
+    "url": "https://www.golfify.io/courses/lo-romero-golf",
+    "retrieved": "2026-02-07"
+  },
+  "tees": [
+    {
+      "teeId": "yellow",
+      "teeNameLocal": "Amarillas",
+      "parTotal": 72,
+      "courseRating": 71.7,
+      "slopeRating": 136,
+      "distance": 6061,
+      "distanceUnit": "m_or_yards_unspecified_by_source"
+    }
+  ],
+  "holes": [
+    {
+      "hole": 1,
+      "par": 4,
+      "hcp": 8
+    },
+    {
+      "hole": 2,
+      "par": 5,
+      "hcp": 2
+    },
+    {
+      "hole": 3,
+      "par": 4,
+      "hcp": 6
+    },
+    {
+      "hole": 4,
+      "par": 4,
+      "hcp": 18
+    },
+    {
+      "hole": 5,
+      "par": 3,
+      "hcp": 10
+    },
+    {
+      "hole": 6,
+      "par": 5,
+      "hcp": 14
+    },
+    {
+      "hole": 7,
+      "par": 3,
+      "hcp": 12
+    },
+    {
+      "hole": 8,
+      "par": 4,
+      "hcp": 4
+    },
+    {
+      "hole": 9,
+      "par": 4,
+      "hcp": 16
+    },
+    {
+      "hole": 10,
+      "par": 5,
+      "hcp": 5
+    },
+    {
+      "hole": 11,
+      "par": 4,
+      "hcp": 17
+    },
+    {
+      "hole": 12,
+      "par": 3,
+      "hcp": 7
+    },
+    {
+      "hole": 13,
+      "par": 4,
+      "hcp": 11
+    },
+    {
+      "hole": 14,
+      "par": 4,
+      "hcp": 15
+    },
+    {
+      "hole": 15,
+      "par": 3,
+      "hcp": 13
+    },
+    {
+      "hole": 16,
+      "par": 4,
+      "hcp": 3
+    },
+    {
+      "hole": 17,
+      "par": 5,
+      "hcp": 9
+    },
+    {
+      "hole": 18,
+      "par": 4,
+      "hcp": 1
+    }
+  ]
+}
