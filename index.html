@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="fi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Golf Scorecard</title>
+
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+      margin: 0;
+      padding: 16px;
+      background: #0f172a;
+      color: #e5e7eb;
+    }
+
+    h1 {
+      font-size: 22px;
+      margin-bottom: 12px;
+    }
+
+    .course {
+      background: #111827;
+      border-radius: 12px;
+      padding: 14px;
+      margin-bottom: 12px;
+      border: 1px solid #1f2937;
+    }
+
+    .course-name {
+      font-size: 18px;
+      font-weight: 600;
+    }
+
+    .course-meta {
+      font-size: 14px;
+      color: #9ca3af;
+      margin-top: 4px;
+    }
+
+    button {
+      margin-top: 10px;
+      padding: 10px 14px;
+      border-radius: 10px;
+      border: none;
+      background: #22c55e;
+      color: #052e16;
+      font-size: 15px;
+      font-weight: 600;
+    }
+
+    .error {
+      color: #f87171;
+      margin-top: 16px;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>Valitse kenttä</h1>
+
+  <div id="courses">Ladataan kenttiä…</div>
+
+  <div id="error" class="error"></div>
+
+  <script>
+    fetch("courses.torrevieja.json")
+      .then(res => {
+        if (!res.ok) throw new Error("Kenttädatan lataus epäonnistui");
+        return res.json();
+      })
+      .then(data => {
+        const container = document.getElementById("courses");
+        container.innerHTML = "";
+
+        data.courses.forEach(course => {
+          const div = document.createElement("div");
+          div.className = "course";
+
+          div.innerHTML = `
+            <div class="course-name">${course.name}</div>
+            <div class="course-meta">
+              Par ${course.tees[0].parTotal} ·
+              Slope ${course.tees[0].slopeRating} ·
+              CR ${course.tees[0].courseRating}
+            </div>
+            <button>Aloita kierros</button>
+          `;
+
+          container.appendChild(div);
+        });
+      })
+      .catch(err => {
+        document.getElementById("error").textContent =
+          "Virhe: " + err.message +
+          ". Varmista että courses.torrevieja.json on repojen juuressa.";
+      });
+  </script>
+
+</body>
+</html>
