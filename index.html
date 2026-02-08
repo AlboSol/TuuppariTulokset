@@ -1,8 +1,700 @@
 <!DOCTYPE html>
 <html lang="fi">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Golf Scorecard</title></head>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Golf Scorecard</title>
+  <style>
+    :root { --bg:#0f172a; --card:#111827; --border:#1f2937; --muted:#9ca3af; --ok:#22c55e; --bad:#f87171; }
+    body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif; margin:0; padding:16px; background:var(--bg); color:#e5e7eb; }
+    h1 { font-size:22px; margin:0 0 12px; }
+    h2 { font-size:18px; margin:0 0 10px; }
+    .row { display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; }
+    .card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:14px; margin-bottom:12px; }
+    .muted { color:var(--muted); font-size:14px; }
+    button { padding:10px 14px; border-radius:10px; border:none; background:var(--ok); color:#052e16; font-size:15px; font-weight:700; }
+    button.secondary { background:#334155; color:#e5e7eb; }
+    button.danger { background:#ef4444; color:#fff; }
+    input, select { width:100%; padding:10px 12px; border-radius:10px; border:1px solid var(--border); background:#0b1220; color:#e5e7eb; font-size:15px; }
+    label { display:block; font-size:13px; color:var(--muted); margin-bottom:6px; }
+    .grid4 { display:grid; grid-template-columns: 44px 44px 44px repeat(4, 1fr); gap:8px; align-items:center; }
+    .grid2 { display:grid; grid-template-columns: 44px 44px 44px 1fr 1fr; gap:8px; align-items:center; }
+    .gridHead { position:sticky; top:0; background:linear-gradient(to bottom, rgba(15,23,42,0.98), rgba(15,23,42,0.92)); padding:10px 0; z-index:2; }
+    .cell { font-size:14px; }
+    .pill { display:inline-block; padding:4px 8px; border:1px solid var(--border); border-radius:999px; font-size:12px; color:var(--muted); }
+    .pillA { border-color:#1f6feb55; }
+    .pillB { border-color:#f59e0b55; }
+    .error { color:var(--bad); margin-top:10px; }
+    .totals { display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
+    .kpi { background:#0b1220; border:1px solid var(--border); border-radius:12px; padding:12px; }
+    .kpi .v { font-size:18px; font-weight:800; margin-top:4px; }
+    .small { font-size:12px; color:var(--muted); }
+    .matchbar { display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap; align-items:flex-start; }
+    .mono { font-variant-numeric: tabular-nums; }
+    .toggle { display:flex; gap:10px; align-items:center; }
+    .toggle input[type="checkbox"]{ width:auto; transform: scale(1.2); }
+  </style>
+</head>
 <body>
-<p>Tämä on päivitetty index.html (joukkueet 1–2 / 3–4 + Erado ON/OFF, oletus 4, max 17).</p>
+  <div id="screen"></div>
+
+  <script>
+    const LS_KEY = "golfScorecard_round_v3";
+
+    function roundHalfUp(n) { return Math.round(n); }
+
+    function courseHandicap(handicapIndex, slope, courseRating, parTotal) {
+      const hi = Number(handicapIndex);
+      const sr = Number(slope);
+      const cr = Number(courseRating);
+      const par = Number(parTotal);
+      if (!isFinite(hi) || !isFinite(sr) || !isFinite(cr) || !isFinite(par)) return 0;
+      return roundHalfUp(hi * (sr / 113) + (cr - par));
+    }
+
+    function allocatedStrokesOnHole(playingHandicap, holeHcp) {
+      const ph = Math.max(0, Math.floor(Number(playingHandicap) || 0));
+      const base = Math.floor(ph / 18);
+      const rem  = ph % 18;
+      return base + (holeHcp <= rem ? 1 : 0);
+    }
+
+    function saveRound(state) { localStorage.setItem(LS_KEY, JSON.stringify(state)); }
+    function loadRound() { try { return JSON.parse(localStorage.getItem(LS_KEY) || "null"); } catch { return null; } }
+    function clearRound() { localStorage.removeItem(LS_KEY); }
+
+    async function loadCourses() {
+      const res = await fetch("courses.torrevieja.json");
+      if (!res.ok) throw new Error("Kenttädatan lataus epäonnistui. Varmista courses.torrevieja.json repo-juuressa.");
+      const data = await res.json();
+      return data.courses || [];
+    }
+
+    const screen = document.getElementById("screen");
+
+    function modeLabel(mode) {
+      return ({
+        strokeplay_net: "Lyöntipeli (net)",
+        match_bestball: "Bestball (reikäpeli)",
+        match_scramble: "Scramble (reikäpeli)",
+        match_greensome: "Greensome (reikäpeli)"
+      })[mode] || mode;
+    }
+
+    function teamLabelForPlayerIndex(i) {
+      if (i === 0 || i === 1) return "A";
+      if (i === 2 || i === 3) return "B";
+      return "";
+    }
+
+    function renderCourseList(courses, errMsg = "") {
+      screen.innerHTML = `
+        <h1>Valitse kenttä</h1>
+        ${errMsg ? `<div class="error">${errMsg}</div>` : ""}
+        <div id="list"></div>
+        <div class="card">
+          <div class="muted">Kun valitset kentän, valitset pelimuodon, asetat Eradon (jos haluat), syötät pelaajat ja aloitat kierroksen.</div>
+        </div>
+      `;
+      const list = document.getElementById("list");
+      courses.forEach(course => {
+        const tee = (course.tees && course.tees[0]) ? course.tees[0] : {};
+        const div = document.createElement("div");
+        div.className = "card";
+        div.innerHTML = `
+          <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;">
+            <div>
+              <div style="font-size:18px;font-weight:800;">${course.name}</div>
+              <div class="muted">Par ${tee.parTotal ?? "?"} · Slope ${tee.slopeRating ?? "?"} · CR ${tee.courseRating ?? "?"}</div>
+              <div class="muted">${course.near || ""} ${course.region ? "· " + course.region : ""}</div>
+            </div>
+            <div class="pill">Yellow</div>
+          </div>
+          <div style="margin-top:10px;">
+            <button>Aloita kierros</button>
+          </div>
+        `;
+        div.querySelector("button").addEventListener("click", () => {
+          const round = {
+            step: "setup",
+            mode: "strokeplay_net",
+            erado: { enabled: false, drops: 4 },
+            courseId: course.id,
+            course: course,
+            players: [
+              { name: "Pelaaja 1", hi: 12.0 },
+              { name: "Pelaaja 2", hi: 18.0 },
+              { name: "Pelaaja 3", hi: 10.0 },
+              { name: "Pelaaja 4", hi: 24.0 }
+            ],
+            scores: {},
+            teamScores: { A: Array(18).fill(""), B: Array(18).fill("") }
+          };
+          saveRound(round);
+          renderSetup(round);
+        });
+        list.appendChild(div);
+      });
+    }
+
+    function renderSetup(round) {
+      const course = round.course;
+      const tee = course.tees[0];
+
+      screen.innerHTML = `
+        <h1>Aloita kierros</h1>
+        <div class="card">
+          <div style="font-size:18px;font-weight:800;">${course.name}</div>
+          <div class="muted">Yellow · Par ${tee.parTotal} · Slope ${tee.slopeRating} · CR ${tee.courseRating}</div>
+        </div>
+
+        <div class="card">
+          <h2>Pelimuoto</h2>
+          <div class="row">
+            <div style="flex:1;min-width:240px;">
+              <label>Valitse pelimuoto</label>
+              <select id="mode">
+                <option value="strokeplay_net">Lyöntipeli (net)</option>
+                <option value="match_bestball">Bestball (reikäpeli)</option>
+                <option value="match_scramble">Scramble (reikäpeli)</option>
+                <option value="match_greensome">Greensome (reikäpeli)</option>
+              </select>
+              <div class="small" style="margin-top:8px;">Joukkueet ovat: <b>A = Pelaajat 1–2</b> · <b>B = Pelaajat 3–4</b>.</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>Erado</h2>
+          <div class="row">
+            <div style="flex:1;min-width:240px;">
+              <div class="toggle">
+                <input type="checkbox" id="eradoEnabled">
+                <label for="eradoEnabled" style="margin:0;">Erado käytössä (on/off)</label>
+              </div>
+              <div class="small" style="margin-top:8px;">Erado = hylätään kierrokselta huonoimmat tulosväylät (net) ja lasketaan lopuista yhteistulos.</div>
+            </div>
+            <div style="flex:1;min-width:180px;">
+              <label>Montako väylää saa hylätä</label>
+              <select id="eradoDrops"></select>
+              <div class="small" style="margin-top:8px;">Oletus 4. Enintään 17 (18 väylää ei saa hylätä).</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>Pelaajat (1–4)</h2>
+          <div class="muted" style="margin-bottom:10px;">Syötä nimi ja Handicap Index (HI). Course Handicap lasketaan automaattisesti.</div>
+          <div id="players"></div>
+          <div style="margin-top:12px;" class="row">
+            <button id="start">Aloita</button>
+            <button class="secondary" id="back">Takaisin</button>
+            <button class="danger" id="reset">Nollaa</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="small">Kaava (WHS): CH = round(HI × (Slope/113) + (CR − Par))</div>
+        </div>
+      `;
+
+      const modeSel = document.getElementById("mode");
+      modeSel.value = round.mode || "strokeplay_net";
+      modeSel.addEventListener("change", () => { round.mode = modeSel.value; saveRound(round); });
+
+      round.erado = round.erado || { enabled:false, drops:4 };
+      const eradoEnabled = document.getElementById("eradoEnabled");
+      const eradoDrops = document.getElementById("eradoDrops");
+      eradoEnabled.checked = !!round.erado.enabled;
+
+      eradoDrops.innerHTML = "";
+      for (let i = 0; i <= 17; i++) {
+        const opt = document.createElement("option");
+        opt.value = String(i);
+        opt.textContent = String(i);
+        eradoDrops.appendChild(opt);
+      }
+      eradoDrops.value = String(Math.min(17, Math.max(0, Number(round.erado.drops) || 4)));
+
+      eradoEnabled.addEventListener("change", () => {
+        round.erado.enabled = eradoEnabled.checked;
+        saveRound(round);
+      });
+
+      eradoDrops.addEventListener("change", () => {
+        const v = Number(eradoDrops.value);
+        round.erado.drops = Math.min(17, Math.max(0, isFinite(v) ? v : 4));
+        eradoDrops.value = String(round.erado.drops);
+        saveRound(round);
+      });
+
+      const playersDiv = document.getElementById("players");
+
+      function renderPlayers() {
+        playersDiv.innerHTML = "";
+
+        const hdr = document.createElement("div");
+        hdr.className = "row";
+        hdr.innerHTML = `
+          <span class="pill pillA">Joukkue A: Pelaaja 1–2</span>
+          <span class="pill pillB">Joukkue B: Pelaaja 3–4</span>
+        `;
+        playersDiv.appendChild(hdr);
+
+        round.players.forEach((p, i) => {
+          const ch = courseHandicap(p.hi, tee.slopeRating, tee.courseRating, tee.parTotal);
+          const team = teamLabelForPlayerIndex(i);
+          const teamPill = team ? `<span class="pill ${team==="A"?"pillA":"pillB"}">Team ${team}</span>` : "";
+          const row = document.createElement("div");
+          row.className = "card";
+          row.style.margin = "10px 0 10px 0";
+          row.innerHTML = `
+            <div class="row" style="align-items:flex-start;">
+              <div style="flex:2;min-width:160px;">
+                <label>Pelaaja ${i+1} ${teamPill}</label>
+                <input data-k="name" data-i="${i}" value="${p.name}">
+              </div>
+              <div style="flex:1;min-width:120px;">
+                <label>HI</label>
+                <input data-k="hi" data-i="${i}" inputmode="decimal" value="${p.hi}">
+              </div>
+              <div style="flex:1;min-width:120px;">
+                <label>CH</label>
+                <div class="kpi"><div class="v mono">${ch}</div><div class="small">Yellow</div></div>
+              </div>
+            </div>
+            <div style="margin-top:8px;" class="row">
+              ${round.players.length > 1 ? `<button class="secondary" data-remove="${i}">Poista</button>` : ``}
+            </div>
+          `;
+
+          row.querySelectorAll("input").forEach(inp => {
+            inp.addEventListener("input", (e) => {
+              const k = e.target.dataset.k;
+              const idx = Number(e.target.dataset.i);
+              if (k === "name") round.players[idx].name = e.target.value;
+              if (k === "hi") round.players[idx].hi = e.target.value;
+              saveRound(round);
+              renderPlayers();
+            });
+          });
+
+          const rm = row.querySelector("[data-remove]");
+          if (rm) rm.addEventListener("click", () => { round.players.splice(i, 1); saveRound(round); renderPlayers(); });
+
+          playersDiv.appendChild(row);
+        });
+
+        if (round.players.length < 4) {
+          const add = document.createElement("div");
+          add.className = "row";
+          add.innerHTML = `<button class="secondary" id="addPlayer">+ Lisää pelaaja</button>`;
+          playersDiv.appendChild(add);
+          document.getElementById("addPlayer").addEventListener("click", () => {
+            round.players.push({ name: `Pelaaja ${round.players.length + 1}`, hi: 18.0 });
+            saveRound(round);
+            renderPlayers();
+          });
+        }
+      }
+
+      renderPlayers();
+
+      document.getElementById("back").addEventListener("click", async () => {
+        round.step = "courses"; saveRound(round);
+        const courses = await loadCourses().catch(() => []);
+        renderCourseList(courses);
+      });
+
+      document.getElementById("reset").addEventListener("click", () => { clearRound(); location.reload(); });
+
+      document.getElementById("start").addEventListener("click", () => {
+        round.step = "scorecard";
+
+        round.scores = round.scores || {};
+        for (let pi = 0; pi < round.players.length; pi++) if (!round.scores[pi]) round.scores[pi] = Array(18).fill("");
+
+        round.teamScores = round.teamScores || { A: Array(18).fill(""), B: Array(18).fill("") };
+        if (!round.teamScores.A) round.teamScores.A = Array(18).fill("");
+        if (!round.teamScores.B) round.teamScores.B = Array(18).fill("");
+
+        round.erado = round.erado || { enabled:false, drops:4 };
+        round.erado.drops = Math.min(17, Math.max(0, Number(round.erado.drops) || 0));
+
+        saveRound(round);
+        renderScorecard(round);
+      });
+    }
+
+    function matchStatusText(match) {
+      const diff = match.a - match.b;
+      if (match.played === 0 || diff === 0) return "AS";
+      const up = Math.abs(diff);
+      return (diff > 0) ? `A ${up} up` : `B ${up} up`;
+    }
+
+    function eradoSum(netByHole, drops) {
+      const vals = netByHole.filter(v => v !== null);
+      if (vals.length === 0) return { sum: 0, used: 0, discarded: 0 };
+      const d = Math.min(Math.max(0, drops|0), Math.min(17, vals.length - 1));
+      const sortedDesc = [...vals].sort((a,b)=>b-a);
+      const kept = sortedDesc.slice(d);
+      const sum = kept.reduce((a,b)=>a+b,0);
+      return { sum, used: kept.length, discarded: d };
+    }
+
+    function renderScorecard(round) {
+      const course = round.course;
+      const tee = course.tees[0];
+      const holes = course.holes;
+      const mode = round.mode || "strokeplay_net";
+      const erado = round.erado || { enabled:false, drops:4 };
+
+      const playerCH = round.players.map(p => courseHandicap(p.hi, tee.slopeRating, tee.courseRating, tee.parTotal));
+
+      function teamCH(team) {
+        const idxs = team === "A" ? [0,1] : [2,3];
+        const vals = idxs.filter(i => i < round.players.length).map(i => playerCH[i]);
+        if (vals.length === 0) return 0;
+        return Math.round(vals.reduce((a,b)=>a+b,0) / vals.length);
+      }
+      const teamCHA = teamCH("A");
+      const teamCHB = teamCH("B");
+
+      function allocPlayer(pi, hi) { return allocatedStrokesOnHole(playerCH[pi], holes[hi].hcp); }
+      function allocTeam(team, hi) { return allocatedStrokesOnHole(team === "A" ? teamCHA : teamCHB, holes[hi].hcp); }
+
+      screen.innerHTML = `
+        <h1>${modeLabel(mode)}</h1>
+
+        <div class="card">
+          <div class="matchbar">
+            <div>
+              <div style="font-size:18px;font-weight:800;">${course.name}</div>
+              <div class="muted">Yellow · Par ${tee.parTotal} · Slope ${tee.slopeRating} · CR ${tee.courseRating}</div>
+              <div class="muted">${mode.startsWith("match_") ? `Joukkueet: <b>A</b> = ${round.players[0]?.name || "—"} & ${round.players[1]?.name || "—"} · <b>B</b> = ${round.players[2]?.name || "—"} & ${round.players[3]?.name || "—"}` : ""}</div>
+              <div class="muted">${erado.enabled ? `Erado: ON (hylätään ${Math.min(17, erado.drops)} väylää)` : "Erado: OFF"}</div>
+            </div>
+            <div class="row" style="justify-content:flex-end;">
+              <button class="secondary" id="setup">Asetukset</button>
+            </div>
+          </div>
+          <div id="matchKpi" style="margin-top:10px;"></div>
+        </div>
+
+        <div class="card">
+          <div id="tableHead"></div>
+          <div id="tableBody"></div>
+        </div>
+
+        <div class="card" id="summaryCard"></div>
+
+        <div class="card">
+          <button class="secondary" id="clearScores">Tyhjennä tulokset</button>
+        </div>
+      `;
+
+      const head = document.getElementById("tableHead");
+      if (mode === "strokeplay_net" || mode === "match_bestball") {
+        head.innerHTML = `
+          <div class="grid4 gridHead">
+            <div class="cell"><b>#</b></div>
+            <div class="cell"><b>Par</b></div>
+            <div class="cell"><b>HCP</b></div>
+            ${round.players.map((p, i) => `<div class="cell"><b>${p.name}</b><div class="small mono">P${i+1} · Team ${teamLabelForPlayerIndex(i) || "—"}</div></div>`).join("")}
+          </div>
+        `;
+      } else {
+        const aNames = `${round.players[0]?.name || "—"} & ${round.players[1]?.name || "—"}`;
+        const bNames = `${round.players[2]?.name || "—"} & ${round.players[3]?.name || "—"}`;
+        head.innerHTML = `
+          <div class="grid2 gridHead">
+            <div class="cell"><b>#</b></div>
+            <div class="cell"><b>Par</b></div>
+            <div class="cell"><b>HCP</b></div>
+            <div class="cell"><b>Team A</b><div class="small">${aNames} · gross</div></div>
+            <div class="cell"><b>Team B</b><div class="small">${bNames} · gross</div></div>
+          </div>
+        `;
+      }
+
+      const body = document.getElementById("tableBody");
+      const matchKpi = document.getElementById("matchKpi");
+      const summary = document.getElementById("summaryCard");
+
+      function bestballTeamNet(team, hi) {
+        const idxs = team === "A" ? [0,1] : [2,3];
+        let best = null;
+        idxs.forEach(pi => {
+          if (pi >= round.players.length) return;
+          const v = round.scores?.[pi]?.[hi];
+          const g = Number(v);
+          if (isFinite(g) && v !== "") {
+            const net = g - allocPlayer(pi, hi);
+            if (best === null || net < best) best = net;
+          }
+        });
+        return best;
+      }
+
+      function teamNetFromTeamGross(team, hi) {
+        const v = round.teamScores?.[team]?.[hi];
+        const g = Number(v);
+        if (!isFinite(g) || v === "") return null;
+        return g - allocTeam(team, hi);
+      }
+
+      function computeMatch() {
+        let a = 0, b = 0, played = 0;
+        for (let hi = 0; hi < 18; hi++) {
+          let aNet = null, bNet = null;
+          if (mode === "match_bestball") {
+            aNet = bestballTeamNet("A", hi);
+            bNet = bestballTeamNet("B", hi);
+          } else if (mode === "match_scramble" || mode === "match_greensome") {
+            aNet = teamNetFromTeamGross("A", hi);
+            bNet = teamNetFromTeamGross("B", hi);
+          } else {
+            return { a:0, b:0, played:0, remaining:18 };
+          }
+          if (aNet === null || bNet === null) continue;
+          played++;
+          if (aNet < bNet) a++;
+          else if (bNet < aNet) b++;
+        }
+        return { a, b, played, remaining: 18 - played };
+      }
+
+      function renderMatchKpi() {
+        if (!mode.startsWith("match_")) {
+          matchKpi.innerHTML = `<div class="muted">Syötä tulokset alle. Net lasketaan automaattisesti.</div>`;
+          return;
+        }
+        const m = computeMatch();
+        const extra = (mode === "match_bestball")
+          ? `Bestball: joukkueen paras nettotulos per reikä.`
+          : `Joukkue-CH (oletus): A ${teamCHA}, B ${teamCHB}.`;
+        matchKpi.innerHTML = `
+          <div class="row">
+            <div class="kpi" style="flex:1;min-width:220px;">
+              <div class="small">Ottelutilanne</div>
+              <div class="v mono">${matchStatusText(m)}</div>
+              <div class="small mono">${m.played}/18 reikää pelattu</div>
+            </div>
+            <div class="kpi" style="flex:1;min-width:220px;">
+              <div class="small">Lisätieto</div>
+              <div class="v mono">${modeLabel(mode)}</div>
+              <div class="small">${extra}</div>
+            </div>
+          </div>
+        `;
+      }
+
+      function computeStrokeTotalsWithErado() {
+        return round.players.map((p, pi) => {
+          let gross = 0, net = 0, holesPlayed = 0;
+          const netByHole = Array(18).fill(null);
+          for (let hi = 0; hi < 18; hi++) {
+            const v = round.scores?.[pi]?.[hi];
+            const g = Number(v);
+            if (isFinite(g) && v !== "") {
+              holesPlayed++;
+              gross += g;
+              const n = g - allocPlayer(pi, hi);
+              net += n;
+              netByHole[hi] = n;
+            }
+          }
+          const er = erado.enabled ? eradoSum(netByHole, erado.drops) : null;
+          return { gross, net, holesPlayed, eradoNet: er ? er.sum : null, eradoUsed: er ? er.used : null, eradoDiscarded: er ? er.discarded : null };
+        });
+      }
+
+      function computeTeamNetByHole(team) {
+        const netByHole = Array(18).fill(null);
+        for (let hi = 0; hi < 18; hi++) {
+          let n = null;
+          if (mode === "match_bestball") n = bestballTeamNet(team, hi);
+          else if (mode === "match_scramble" || mode === "match_greensome") n = teamNetFromTeamGross(team, hi);
+          netByHole[hi] = n;
+        }
+        return netByHole;
+      }
+
+      function renderSummary() {
+        if (mode === "strokeplay_net") {
+          const totals = computeStrokeTotalsWithErado();
+          summary.innerHTML = `
+            <h2>Yhteenveto</h2>
+            <div class="totals">
+              ${totals.map((x, i) => `
+                <div class="kpi">
+                  <div class="small">${round.players[i].name} · HI ${round.players[i].hi} · CH ${playerCH[i]}</div>
+                  <div class="v mono">Gross ${x.gross || 0}</div>
+                  <div class="v mono">Net ${x.net || 0}</div>
+                  ${erado.enabled ? `<div class="v mono">Erado net ${x.eradoNet ?? 0}</div><div class="small mono">hylätty ${x.eradoDiscarded} · käytetty ${x.eradoUsed}</div>` : ``}
+                  <div class="small mono">${x.holesPlayed}/18 reikää</div>
+                </div>
+              `).join("")}
+            </div>
+          `;
+        } else {
+          const m = computeMatch();
+          const netA = computeTeamNetByHole("A");
+          const netB = computeTeamNetByHole("B");
+          const erA = erado.enabled ? eradoSum(netA, erado.drops) : null;
+          const erB = erado.enabled ? eradoSum(netB, erado.drops) : null;
+
+          summary.innerHTML = `
+            <h2>Yhteenveto</h2>
+            <div class="muted">Ottelutilanne: <b class="mono">${matchStatusText(m)}</b> (${m.played}/18 reikää)</div>
+            ${erado.enabled ? `
+              <div class="row" style="margin-top:10px;">
+                <div class="kpi" style="flex:1;min-width:220px;">
+                  <div class="small">Team A Erado net</div>
+                  <div class="v mono">${erA ? erA.sum : 0}</div>
+                  <div class="small mono">hylätty ${erA ? erA.discarded : 0} · käytetty ${erA ? erA.used : 0}</div>
+                </div>
+                <div class="kpi" style="flex:1;min-width:220px;">
+                  <div class="small">Team B Erado net</div>
+                  <div class="v mono">${erB ? erB.sum : 0}</div>
+                  <div class="small mono">hylätty ${erB ? erB.discarded : 0} · käytetty ${erB ? erB.used : 0}</div>
+                </div>
+              </div>
+            ` : ``}
+            <div class="small" style="margin-top:8px;">Reikäpeli lasketaan vain niiltä rei'iltä, joilta molemmilla joukkueilla on tulos.</div>
+          `;
+        }
+      }
+
+      function renderTable() {
+        body.innerHTML = "";
+        for (let hi = 0; hi < 18; hi++) {
+          const h = holes[hi];
+
+          if (mode === "strokeplay_net" || mode === "match_bestball") {
+            const row = document.createElement("div");
+            row.className = "grid4";
+            row.style.padding = "8px 0";
+            row.innerHTML = `
+              <div class="cell mono">${hi + 1}</div>
+              <div class="cell mono">${h.par}</div>
+              <div class="cell mono">${h.hcp}</div>
+              ${round.players.map((p, pi) => `
+                <div class="cell">
+                  <input inputmode="numeric" placeholder="—" data-pi="${pi}" data-hi="${hi}" value="${round.scores?.[pi]?.[hi] ?? ""}">
+                  <div class="small mono">net −${allocPlayer(pi, hi)} = <span id="net_${pi}_${hi}">—</span></div>
+                </div>
+              `).join("")}
+            `;
+            body.appendChild(row);
+          } else {
+            const aVal = round.teamScores?.A?.[hi] ?? "";
+            const bVal = round.teamScores?.B?.[hi] ?? "";
+            const row = document.createElement("div");
+            row.className = "grid2";
+            row.style.padding = "8px 0";
+            row.innerHTML = `
+              <div class="cell mono">${hi + 1}</div>
+              <div class="cell mono">${h.par}</div>
+              <div class="cell mono">${h.hcp}</div>
+              <div class="cell">
+                <input inputmode="numeric" placeholder="—" data-team="A" data-hi="${hi}" value="${aVal}">
+                <div class="small mono">net −${allocTeam("A", hi)} = <span id="tnet_A_${hi}">—</span></div>
+              </div>
+              <div class="cell">
+                <input inputmode="numeric" placeholder="—" data-team="B" data-hi="${hi}" value="${bVal}">
+                <div class="small mono">net −${allocTeam("B", hi)} = <span id="tnet_B_${hi}">—</span></div>
+              </div>
+            `;
+            body.appendChild(row);
+          }
+        }
+
+        body.querySelectorAll("input[data-pi]").forEach(inp => {
+          inp.addEventListener("input", (e) => {
+            const pi = Number(e.target.dataset.pi);
+            const hi = Number(e.target.dataset.hi);
+            round.scores[pi][hi] = e.target.value.replace(",", ".");
+            saveRound(round);
+            updateNetLabels();
+            renderMatchKpi();
+            renderSummary();
+          });
+        });
+
+        body.querySelectorAll("input[data-team]").forEach(inp => {
+          inp.addEventListener("input", (e) => {
+            const team = e.target.dataset.team;
+            const hi = Number(e.target.dataset.hi);
+            round.teamScores[team][hi] = e.target.value.replace(",", ".");
+            saveRound(round);
+            updateTeamNetLabels();
+            renderMatchKpi();
+            renderSummary();
+          });
+        });
+
+        updateNetLabels();
+        updateTeamNetLabels();
+      }
+
+      function updateNetLabels() {
+        if (!(mode === "strokeplay_net" || mode === "match_bestball")) return;
+        for (let pi = 0; pi < round.players.length; pi++) {
+          for (let hi = 0; hi < 18; hi++) {
+            const el = document.getElementById(`net_${pi}_${hi}`);
+            if (!el) continue;
+            const v = round.scores?.[pi]?.[hi];
+            const g = Number(v);
+            const net = (isFinite(g) && v !== "") ? (g - allocPlayer(pi, hi)) : null;
+            el.textContent = net === null ? "—" : String(net);
+          }
+        }
+      }
+
+      function updateTeamNetLabels() {
+        if (!(mode === "match_scramble" || mode === "match_greensome")) return;
+        for (let hi = 0; hi < 18; hi++) {
+          ["A","B"].forEach(team => {
+            const el = document.getElementById(`tnet_${team}_${hi}`);
+            if (!el) return;
+            const v = round.teamScores?.[team]?.[hi];
+            const g = Number(v);
+            const net = (isFinite(g) && v !== "") ? (g - allocTeam(team, hi)) : null;
+            el.textContent = net === null ? "—" : String(net);
+          });
+        }
+      }
+
+      renderTable();
+      renderMatchKpi();
+      renderSummary();
+
+      document.getElementById("setup").addEventListener("click", () => { round.step = "setup"; saveRound(round); renderSetup(round); });
+
+      document.getElementById("clearScores").addEventListener("click", () => {
+        round.scores = round.scores || {};
+        for (let pi = 0; pi < round.players.length; pi++) round.scores[pi] = Array(18).fill("");
+        round.teamScores = { A: Array(18).fill(""), B: Array(18).fill("") };
+        saveRound(round);
+        renderScorecard(round);
+      });
+    }
+
+    (async function init() {
+      const existing = loadRound();
+      if (existing && existing.course && existing.step) {
+        if (existing.step === "setup") return renderSetup(existing);
+        if (existing.step === "scorecard") return renderScorecard(existing);
+      }
+      try {
+        const courses = await loadCourses();
+        renderCourseList(courses);
+      } catch (e) {
+        renderCourseList([], e.message);
+      }
+    })();
+  </script>
 </body>
 </html>
