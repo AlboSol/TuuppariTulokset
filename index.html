@@ -5,20 +5,21 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Golf Scorecard</title>
   <style>
-    :root { --bg:#0f172a; --card:#111827; --border:#1f2937; --muted:#9ca3af; --ok:#22c55e; --warn:#f59e0b; --bad:#f87171; }
+    :root { --bg:#0f172a; --card:#111827; --border:#1f2937; --muted:#9ca3af; --ok:#22c55e; --bad:#f87171; }
     body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif; margin:0; padding:16px; background:var(--bg); color:#e5e7eb; }
     h1 { font-size:22px; margin:0 0 12px; }
     h2 { font-size:18px; margin:0 0 10px; }
-    .row { display:flex; gap:10px; flex-wrap:wrap; }
+    .row { display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; }
     .card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:14px; margin-bottom:12px; }
     .muted { color:var(--muted); font-size:14px; }
     button { padding:10px 14px; border-radius:10px; border:none; background:var(--ok); color:#052e16; font-size:15px; font-weight:700; }
     button.secondary { background:#334155; color:#e5e7eb; }
     button.danger { background:#ef4444; color:#fff; }
-    input { width:100%; padding:10px 12px; border-radius:10px; border:1px solid var(--border); background:#0b1220; color:#e5e7eb; font-size:15px; }
+    input, select { width:100%; padding:10px 12px; border-radius:10px; border:1px solid var(--border); background:#0b1220; color:#e5e7eb; font-size:15px; }
     label { display:block; font-size:13px; color:var(--muted); margin-bottom:6px; }
-    .grid { display:grid; grid-template-columns: 44px 44px 44px repeat(4, 1fr); gap:8px; align-items:center; }
-    .grid.head { position:sticky; top:0; background:linear-gradient(to bottom, rgba(15,23,42,0.98), rgba(15,23,42,0.92)); padding:10px 0; z-index:2; }
+    .grid4 { display:grid; grid-template-columns: 44px 44px 44px repeat(4, 1fr); gap:8px; align-items:center; }
+    .grid2 { display:grid; grid-template-columns: 44px 44px 44px 1fr 1fr; gap:8px; align-items:center; }
+    .gridHead { position:sticky; top:0; background:linear-gradient(to bottom, rgba(15,23,42,0.98), rgba(15,23,42,0.92)); padding:10px 0; z-index:2; }
     .cell { font-size:14px; }
     .pill { display:inline-block; padding:4px 8px; border:1px solid var(--border); border-radius:999px; font-size:12px; color:var(--muted); }
     .error { color:var(--bad); margin-top:10px; }
@@ -26,14 +27,15 @@
     .kpi { background:#0b1220; border:1px solid var(--border); border-radius:12px; padding:12px; }
     .kpi .v { font-size:18px; font-weight:800; margin-top:4px; }
     .small { font-size:12px; color:var(--muted); }
+    .matchbar { display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap; align-items:center; }
+    .mono { font-variant-numeric: tabular-nums; }
   </style>
 </head>
 <body>
-
   <div id="screen"></div>
 
   <script>
-    const LS_KEY = "golfScorecard_round_v1";
+    const LS_KEY = "golfScorecard_round_v2";
     function roundHalfUp(n) { return Math.round(n); }
 
     function courseHandicap(handicapIndex, slope, courseRating, parTotal) {
@@ -65,28 +67,34 @@
 
     const screen = document.getElementById("screen");
 
+    function modeLabel(mode) {
+      return ({
+        strokeplay_net: "Lyöntipeli (net)",
+        match_bestball: "Bestball (reikäpeli)",
+        match_scramble: "Scramble (reikäpeli)",
+        match_greensome: "Greensome (reikäpeli)"
+      })[mode] || mode;
+    }
+
     function renderCourseList(courses, errMsg = "") {
       screen.innerHTML = `
         <h1>Valitse kenttä</h1>
         ${errMsg ? `<div class="error">${errMsg}</div>` : ""}
         <div id="list"></div>
         <div class="card">
-          <div class="muted">Kun valitset kentän, syötät pelaajat ja aloitat kierroksen. Kaikki tallentuu laitteelle.</div>
+          <div class="muted">Kun valitset kentän, valitset pelimuodon, syötät pelaajat ja aloitat kierroksen.</div>
         </div>
       `;
       const list = document.getElementById("list");
       courses.forEach(course => {
         const tee = (course.tees && course.tees[0]) ? course.tees[0] : {};
-        const par = tee.parTotal ?? "?";
-        const slope = tee.slopeRating ?? "?";
-        const cr = tee.courseRating ?? "?";
         const div = document.createElement("div");
         div.className = "card";
         div.innerHTML = `
           <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;">
             <div>
               <div style="font-size:18px;font-weight:800;">${course.name}</div>
-              <div class="muted">Par ${par} · Slope ${slope} · CR ${cr}</div>
+              <div class="muted">Par ${tee.parTotal ?? "?"} · Slope ${tee.slopeRating ?? "?"} · CR ${tee.courseRating ?? "?"}</div>
               <div class="muted">${course.near || ""} ${course.region ? "· " + course.region : ""}</div>
             </div>
             <div class="pill">Yellow</div>
@@ -98,6 +106,7 @@
         div.querySelector("button").addEventListener("click", () => {
           const round = {
             step: "setup",
+            mode: "strokeplay_net",
             courseId: course.id,
             course: course,
             players: [
@@ -106,7 +115,8 @@
               { name: "Pelaaja 3", hi: 10.0 },
               { name: "Pelaaja 4", hi: 24.0 }
             ],
-            scores: {}
+            scores: {},
+            teamScores: { A: Array(18).fill(""), B: Array(18).fill("") }
           };
           saveRound(round);
           renderSetup(round);
@@ -127,6 +137,22 @@
         </div>
 
         <div class="card">
+          <h2>Pelimuoto</h2>
+          <div class="row">
+            <div style="flex:1;min-width:240px;">
+              <label>Valitse pelimuoto</label>
+              <select id="mode">
+                <option value="strokeplay_net">Lyöntipeli (net)</option>
+                <option value="match_bestball">Bestball (reikäpeli)</option>
+                <option value="match_scramble">Scramble (reikäpeli)</option>
+                <option value="match_greensome">Greensome (reikäpeli)</option>
+              </select>
+              <div class="small" style="margin-top:8px;">Reikäpelissä joukkueet ovat nyt: A = Pelaajat 1–2, B = Pelaajat 3–4.</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
           <h2>Pelaajat (1–4)</h2>
           <div class="muted" style="margin-bottom:10px;">Syötä nimi ja Handicap Index (HI). Course Handicap lasketaan automaattisesti.</div>
           <div id="players"></div>
@@ -141,6 +167,10 @@
           <div class="small">Kaava (WHS): CH = round(HI × (Slope/113) + (CR − Par))</div>
         </div>
       `;
+
+      const modeSel = document.getElementById("mode");
+      modeSel.value = round.mode || "strokeplay_net";
+      modeSel.addEventListener("change", () => { round.mode = modeSel.value; saveRound(round); });
 
       const playersDiv = document.getElementById("players");
 
@@ -163,7 +193,7 @@
               </div>
               <div style="flex:1;min-width:120px;">
                 <label>CH</label>
-                <div class="kpi"><div class="v">${ch}</div><div class="small">Yellow</div></div>
+                <div class="kpi"><div class="v mono">${ch}</div><div class="small">Yellow</div></div>
               </div>
             </div>
             <div style="margin-top:8px;" class="row">
@@ -181,12 +211,7 @@
             });
           });
           const rm = row.querySelector("[data-remove]");
-          if (rm) rm.addEventListener("click", () => {
-            round.players.splice(i, 1);
-            saveRound(round);
-            renderPlayers();
-          });
-
+          if (rm) rm.addEventListener("click", () => { round.players.splice(i, 1); saveRound(round); renderPlayers(); });
           playersDiv.appendChild(row);
         });
 
@@ -206,169 +231,331 @@
       renderPlayers();
 
       document.getElementById("back").addEventListener("click", async () => {
-        round.step = "courses";
-        saveRound(round);
+        round.step = "courses"; saveRound(round);
         const courses = await loadCourses().catch(() => []);
         renderCourseList(courses);
       });
 
-      document.getElementById("reset").addEventListener("click", () => {
-        clearRound();
-        location.reload();
-      });
+      document.getElementById("reset").addEventListener("click", () => { clearRound(); location.reload(); });
 
       document.getElementById("start").addEventListener("click", () => {
         round.step = "scorecard";
         round.scores = round.scores || {};
-        for (let pi = 0; pi < round.players.length; pi++) {
-          if (!round.scores[pi]) round.scores[pi] = Array(18).fill("");
-        }
+        for (let pi = 0; pi < round.players.length; pi++) if (!round.scores[pi]) round.scores[pi] = Array(18).fill("");
+        round.teamScores = round.teamScores || { A: Array(18).fill(""), B: Array(18).fill("") };
+        if (!round.teamScores.A) round.teamScores.A = Array(18).fill("");
+        if (!round.teamScores.B) round.teamScores.B = Array(18).fill("");
         saveRound(round);
         renderScorecard(round);
       });
+    }
+
+    function matchStatusText(match) {
+      const diff = match.a - match.b;
+      if (match.played === 0 || diff === 0) return "AS";
+      const up = Math.abs(diff);
+      return (diff > 0) ? `A ${up} up` : `B ${up} up`;
     }
 
     function renderScorecard(round) {
       const course = round.course;
       const tee = course.tees[0];
       const holes = course.holes;
+      const mode = round.mode || "strokeplay_net";
+
       const playerCH = round.players.map(p => courseHandicap(p.hi, tee.slopeRating, tee.courseRating, tee.parTotal));
 
+      function teamCH(team) {
+        const idxs = team === "A" ? [0,1] : [2,3];
+        const vals = idxs.filter(i => i < round.players.length).map(i => playerCH[i]);
+        if (vals.length === 0) return 0;
+        return Math.round(vals.reduce((a,b)=>a+b,0) / vals.length);
+      }
+      const teamCHA = teamCH("A");
+      const teamCHB = teamCH("B");
+
+      function allocPlayer(pi, hi) { return allocatedStrokesOnHole(playerCH[pi], holes[hi].hcp); }
+      function allocTeam(team, hi) { return allocatedStrokesOnHole(team === "A" ? teamCHA : teamCHB, holes[hi].hcp); }
+
       screen.innerHTML = `
-        <h1>Tuloskortti</h1>
+        <h1>${modeLabel(mode)}</h1>
 
         <div class="card">
-          <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;">
+          <div class="matchbar">
             <div>
               <div style="font-size:18px;font-weight:800;">${course.name}</div>
               <div class="muted">Yellow · Par ${tee.parTotal} · Slope ${tee.slopeRating} · CR ${tee.courseRating}</div>
+              <div class="muted">${mode.startsWith("match_") ? `Joukkueet: A = ${round.players[0]?.name || "—"} & ${round.players[1]?.name || "—"} · B = ${round.players[2]?.name || "—"} & ${round.players[3]?.name || "—"}` : ""}</div>
             </div>
-            <button class="secondary" id="setup">Asetukset</button>
+            <div class="row" style="justify-content:flex-end;">
+              <button class="secondary" id="setup">Asetukset</button>
+            </div>
           </div>
-          <div style="margin-top:10px" class="muted">
-            ${round.players.map((p, i) => `<span class="pill">${p.name} (HI ${p.hi} → CH ${playerCH[i]})</span>`).join(" ")}
-          </div>
+          <div id="matchKpi" style="margin-top:10px;"></div>
         </div>
 
         <div class="card">
-          <div class="grid head">
+          <div id="tableHead"></div>
+          <div id="tableBody"></div>
+        </div>
+
+        <div class="card" id="summaryCard"></div>
+
+        <div class="card">
+          <button class="secondary" id="clearScores">Tyhjennä tulokset</button>
+        </div>
+      `;
+
+      const head = document.getElementById("tableHead");
+      if (mode === "strokeplay_net" || mode === "match_bestball") {
+        head.innerHTML = `
+          <div class="grid4 gridHead">
             <div class="cell"><b>#</b></div>
             <div class="cell"><b>Par</b></div>
             <div class="cell"><b>HCP</b></div>
             ${round.players.map(p => `<div class="cell"><b>${p.name}</b><div class="small">gross</div></div>`).join("")}
           </div>
-          <div id="holes"></div>
-        </div>
-
-        <div class="card totals" id="totals"></div>
-
-        <div class="card">
-          <button class="secondary" id="clearHoleScores">Tyhjennä tulokset</button>
-        </div>
-      `;
-
-      const holesDiv = document.getElementById("holes");
-
-      function allocatedStrokes(pi, hi) {
-        return allocatedStrokesOnHole(playerCH[pi], holes[hi].hcp);
+        `;
+      } else {
+        const aNames = `${round.players[0]?.name || "—"} & ${round.players[1]?.name || "—"}`;
+        const bNames = `${round.players[2]?.name || "—"} & ${round.players[3]?.name || "—"}`;
+        head.innerHTML = `
+          <div class="grid2 gridHead">
+            <div class="cell"><b>#</b></div>
+            <div class="cell"><b>Par</b></div>
+            <div class="cell"><b>HCP</b></div>
+            <div class="cell"><b>A</b><div class="small">${aNames} · gross</div></div>
+            <div class="cell"><b>B</b><div class="small">${bNames} · gross</div></div>
+          </div>
+        `;
       }
 
-      function computeTotals() {
+      const body = document.getElementById("tableBody");
+      const matchKpi = document.getElementById("matchKpi");
+      const summary = document.getElementById("summaryCard");
+
+      function bestballTeamNet(team, hi) {
+        const idxs = team === "A" ? [0,1] : [2,3];
+        let best = null;
+        idxs.forEach(pi => {
+          if (pi >= round.players.length) return;
+          const v = round.scores?.[pi]?.[hi];
+          const g = Number(v);
+          if (isFinite(g) && v !== "") {
+            const net = g - allocPlayer(pi, hi);
+            if (best === null || net < best) best = net;
+          }
+        });
+        return best;
+      }
+
+      function teamNetFromTeamGross(team, hi) {
+        const v = round.teamScores?.[team]?.[hi];
+        const g = Number(v);
+        if (!isFinite(g) || v === "") return null;
+        return g - allocTeam(team, hi);
+      }
+
+      function computeMatch() {
+        let a = 0, b = 0, played = 0;
+        for (let hi = 0; hi < 18; hi++) {
+          let aNet = null, bNet = null;
+          if (mode === "match_bestball") {
+            aNet = bestballTeamNet("A", hi);
+            bNet = bestballTeamNet("B", hi);
+          } else if (mode === "match_scramble" || mode === "match_greensome") {
+            aNet = teamNetFromTeamGross("A", hi);
+            bNet = teamNetFromTeamGross("B", hi);
+          } else {
+            return { a:0, b:0, played:0, remaining:18 };
+          }
+          if (aNet === null || bNet === null) continue;
+          played++;
+          if (aNet < bNet) a++;
+          else if (bNet < aNet) b++;
+        }
+        return { a, b, played, remaining: 18 - played };
+      }
+
+      function renderMatchKpi() {
+        if (!mode.startsWith("match_")) {
+          matchKpi.innerHTML = `<div class="muted">Syötä tulokset alle. Net lasketaan automaattisesti.</div>`;
+          return;
+        }
+        const m = computeMatch();
+        const extra = (mode === "match_bestball")
+          ? `Bestball: joukkueen paras nettotulos per reikä.`
+          : `Joukkue-CH (oletus): A ${teamCHA}, B ${teamCHB}.`;
+        matchKpi.innerHTML = `
+          <div class="row">
+            <div class="kpi" style="flex:1;min-width:220px;">
+              <div class="small">Ottelutilanne</div>
+              <div class="v mono">${matchStatusText(m)}</div>
+              <div class="small mono">${m.played}/18 reikää pelattu</div>
+            </div>
+            <div class="kpi" style="flex:1;min-width:220px;">
+              <div class="small">Lisätieto</div>
+              <div class="v mono">${modeLabel(mode)}</div>
+              <div class="small">${extra}</div>
+            </div>
+          </div>
+        `;
+      }
+
+      function computeStrokeTotals() {
         return round.players.map((p, pi) => {
           let gross = 0, net = 0, holesPlayed = 0;
           for (let hi = 0; hi < 18; hi++) {
-            const v = round.scores[pi][hi];
+            const v = round.scores?.[pi]?.[hi];
             const g = Number(v);
             if (isFinite(g) && v !== "") {
               holesPlayed++;
               gross += g;
-              net += (g - allocatedStrokes(pi, hi));
+              net += (g - allocPlayer(pi, hi));
             }
           }
           return { gross, net, holesPlayed };
         });
       }
 
-      function renderHoles() {
-        holesDiv.innerHTML = "";
+      function renderSummary() {
+        if (mode === "strokeplay_net") {
+          const totals = computeStrokeTotals();
+          summary.innerHTML = `
+            <h2>Yhteenveto</h2>
+            <div class="totals">
+              ${totals.map((x, i) => `
+                <div class="kpi">
+                  <div class="small">${round.players[i].name} · HI ${round.players[i].hi} · CH ${playerCH[i]}</div>
+                  <div class="v mono">Gross ${x.gross || 0}</div>
+                  <div class="v mono">Net ${x.net || 0}</div>
+                  <div class="small mono">${x.holesPlayed}/18 reikää</div>
+                </div>
+              `).join("")}
+            </div>
+          `;
+        } else {
+          const m = computeMatch();
+          summary.innerHTML = `
+            <h2>Yhteenveto</h2>
+            <div class="muted">Ottelutilanne: <b class="mono">${matchStatusText(m)}</b> (${m.played}/18 reikää)</div>
+            <div class="small" style="margin-top:8px;">Reikäpeli lasketaan vain niiltä rei'iltä, joilta molemmilla joukkueilla on tulos.</div>
+          `;
+        }
+      }
+
+      function renderTable() {
+        body.innerHTML = "";
         for (let hi = 0; hi < 18; hi++) {
           const h = holes[hi];
-          const row = document.createElement("div");
-          row.className = "grid";
-          row.style.padding = "8px 0";
-          row.innerHTML = `
-            <div class="cell">${hi + 1}</div>
-            <div class="cell">${h.par}</div>
-            <div class="cell">${h.hcp}</div>
-            ${round.players.map((p, pi) => `
+
+          if (mode === "strokeplay_net" || mode === "match_bestball") {
+            const row = document.createElement("div");
+            row.className = "grid4";
+            row.style.padding = "8px 0";
+            row.innerHTML = `
+              <div class="cell mono">${hi + 1}</div>
+              <div class="cell mono">${h.par}</div>
+              <div class="cell mono">${h.hcp}</div>
+              ${round.players.map((p, pi) => `
+                <div class="cell">
+                  <input inputmode="numeric" placeholder="—" data-pi="${pi}" data-hi="${hi}" value="${round.scores?.[pi]?.[hi] ?? ""}">
+                  <div class="small mono">net −${allocPlayer(pi, hi)} = <span id="net_${pi}_${hi}">—</span></div>
+                </div>
+              `).join("")}
+            `;
+            body.appendChild(row);
+          } else {
+            const aVal = round.teamScores?.A?.[hi] ?? "";
+            const bVal = round.teamScores?.B?.[hi] ?? "";
+            const row = document.createElement("div");
+            row.className = "grid2";
+            row.style.padding = "8px 0";
+            row.innerHTML = `
+              <div class="cell mono">${hi + 1}</div>
+              <div class="cell mono">${h.par}</div>
+              <div class="cell mono">${h.hcp}</div>
               <div class="cell">
-                <input inputmode="numeric" placeholder="—"
-                  data-pi="${pi}" data-hi="${hi}"
-                  value="${round.scores[pi][hi] ?? ""}">
-                <div class="small">net −${allocatedStrokes(pi, hi)} = <span id="net_${pi}_${hi}">—</span></div>
+                <input inputmode="numeric" placeholder="—" data-team="A" data-hi="${hi}" value="${aVal}">
+                <div class="small mono">net −${allocTeam("A", hi)} = <span id="tnet_A_${hi}">—</span></div>
               </div>
-            `).join("")}
-          `;
-          holesDiv.appendChild(row);
+              <div class="cell">
+                <input inputmode="numeric" placeholder="—" data-team="B" data-hi="${hi}" value="${bVal}">
+                <div class="small mono">net −${allocTeam("B", hi)} = <span id="tnet_B_${hi}">—</span></div>
+              </div>
+            `;
+            body.appendChild(row);
+          }
         }
 
-        holesDiv.querySelectorAll("input").forEach(inp => {
+        body.querySelectorAll("input[data-pi]").forEach(inp => {
           inp.addEventListener("input", (e) => {
             const pi = Number(e.target.dataset.pi);
             const hi = Number(e.target.dataset.hi);
             round.scores[pi][hi] = e.target.value.replace(",", ".");
             saveRound(round);
             updateNetLabels();
-            renderTotals();
+            renderMatchKpi();
+            renderSummary();
+          });
+        });
+
+        body.querySelectorAll("input[data-team]").forEach(inp => {
+          inp.addEventListener("input", (e) => {
+            const team = e.target.dataset.team;
+            const hi = Number(e.target.dataset.hi);
+            round.teamScores[team][hi] = e.target.value.replace(",", ".");
+            saveRound(round);
+            updateTeamNetLabels();
+            renderMatchKpi();
+            renderSummary();
           });
         });
 
         updateNetLabels();
+        updateTeamNetLabels();
       }
 
       function updateNetLabels() {
+        if (!(mode === "strokeplay_net" || mode === "match_bestball")) return;
         for (let pi = 0; pi < round.players.length; pi++) {
           for (let hi = 0; hi < 18; hi++) {
             const el = document.getElementById(`net_${pi}_${hi}`);
             if (!el) continue;
-            const g = Number(round.scores[pi][hi]);
-            const net = (isFinite(g) && round.scores[pi][hi] !== "") ? (g - allocatedStrokes(pi, hi)) : null;
+            const v = round.scores?.[pi]?.[hi];
+            const g = Number(v);
+            const net = (isFinite(g) && v !== "") ? (g - allocPlayer(pi, hi)) : null;
             el.textContent = net === null ? "—" : String(net);
           }
         }
       }
 
-      function renderTotals() {
-        const totals = computeTotals();
-        const t = document.getElementById("totals");
-        t.innerHTML = `
-          ${totals.map((x, i) => `
-            <div class="kpi">
-              <div class="small">${round.players[i].name}</div>
-              <div class="v">Gross ${x.gross || 0}</div>
-              <div class="v">Net ${x.net || 0}</div>
-              <div class="small">${x.holesPlayed}/18 reikää</div>
-            </div>
-          `).join("")}
-        `;
+      function updateTeamNetLabels() {
+        if (!(mode === "match_scramble" || mode === "match_greensome")) return;
+        for (let hi = 0; hi < 18; hi++) {
+          ["A","B"].forEach(team => {
+            const el = document.getElementById(`tnet_${team}_${hi}`);
+            if (!el) return;
+            const v = round.teamScores?.[team]?.[hi];
+            const g = Number(v);
+            const net = (isFinite(g) && v !== "") ? (g - allocTeam(team, hi)) : null;
+            el.textContent = net === null ? "—" : String(net);
+          });
+        }
       }
 
-      renderHoles();
-      renderTotals();
+      renderTable();
+      renderMatchKpi();
+      renderSummary();
 
-      document.getElementById("setup").addEventListener("click", () => {
-        round.step = "setup";
-        saveRound(round);
-        renderSetup(round);
-      });
+      document.getElementById("setup").addEventListener("click", () => { round.step = "setup"; saveRound(round); renderSetup(round); });
 
-      document.getElementById("clearHoleScores").addEventListener("click", () => {
-        for (let pi = 0; pi < round.players.length; pi++) {
-          round.scores[pi] = Array(18).fill("");
-        }
+      document.getElementById("clearScores").addEventListener("click", () => {
+        round.scores = round.scores || {};
+        for (let pi = 0; pi < round.players.length; pi++) round.scores[pi] = Array(18).fill("");
+        round.teamScores = { A: Array(18).fill(""), B: Array(18).fill("") };
         saveRound(round);
-        renderHoles();
-        renderTotals();
+        renderScorecard(round);
       });
     }
 
