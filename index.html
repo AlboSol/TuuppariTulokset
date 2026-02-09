@@ -315,16 +315,16 @@
       // NEW RULE: dropped hole => PAR also as NET (no handicap applied)
       function effectiveNetPlayer(pi,hi) {
         const v = round.scores?.[pi]?.[hi];
-        if (String(v)==="") return null;
-        if (erado.enabled && round.erado.dropped[pi][hi]) return holes[hi].par; // PAR as net
+        if (erado.enabled && round.erado.dropped[pi][hi]) return holes[hi].par; // PAR as net (even if score empty)
+        if (String(v)==="") return null; // PAR as net
         const g = Number(v);
         if (!isFinite(g)) return null;
         return g - allocPlayer(pi,hi);
       }
       function effectiveNetTeam(team,hi) {
         const v = round.teamScores?.[team]?.[hi];
-        if (String(v)==="") return null;
-        if (erado.enabled && round.erado.teamDropped[team][hi]) return holes[hi].par; // PAR as net
+        if (erado.enabled && round.erado.teamDropped[team][hi]) return holes[hi].par; // PAR as net (even if score empty)
+        if (String(v)==="") return null; // PAR as net
         const g = Number(v);
         if (!isFinite(g)) return null;
         return g - allocTeam(team,hi);
@@ -552,7 +552,7 @@
               const dropped = !!round.erado.dropped[pi][hi];
               const locked = holeLockedForPlayer(round,pi,hi);
               const remaining = erado.drops - countDropsPlayer(round,pi);
-              const disableToggle = !erado.enabled || String(v)==="" || locked || (!dropped && remaining<=0);
+              const disableToggle = !erado.enabled || locked || (!dropped && remaining<=0);
               const net = effectiveNetPlayer(pi,hi);
               const dropText = locked ? "lukittu (seuraava väylä aloitettu)" : "Hylkää väylä (Erado)";
               return `
@@ -583,8 +583,8 @@
           const bLocked = holeLockedForTeam(round,"B",hi);
           const aRemain = erado.drops - countDropsTeam(round,"A");
           const bRemain = erado.drops - countDropsTeam(round,"B");
-          const aDisable = !erado.enabled || String(aV)==="" || aLocked || (!aDropped && aRemain<=0);
-          const bDisable = !erado.enabled || String(bV)==="" || bLocked || (!bDropped && bRemain<=0);
+          const aDisable = !erado.enabled || aLocked || (!aDropped && aRemain<=0);
+          const bDisable = !erado.enabled || bLocked || (!bDropped && bRemain<=0);
           const aNet = effectiveNetTeam("A",hi);
           const bNet = effectiveNetTeam("B",hi);
 
@@ -677,6 +677,7 @@
           const current=countDropsPlayer(round,pi);
           if (want && current>=erado.drops) { e.target.checked=false; return; }
           round.erado.dropped[pi][hi]=want;
+          if (want && String(round.scores?.[pi]?.[hi]??"")==="") { round.scores[pi][hi] = String(holes[hi].par); }
           saveRound(round);
           renderScorecard(round);
         });
@@ -690,6 +691,7 @@
           const current=countDropsTeam(round,team);
           if (want && current>=erado.drops) { e.target.checked=false; return; }
           round.erado.teamDropped[team][hi]=want;
+          if (want && String(round.teamScores?.[team]?.[hi]??"")==="") { round.teamScores[team][hi] = String(holes[hi].par); }
           saveRound(round);
           renderScorecard(round);
         });
